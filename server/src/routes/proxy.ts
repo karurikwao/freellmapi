@@ -373,11 +373,14 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   // Retry loop: on 429/rate limit, skip that model+key and try the next one
   const skipKeys = new Set<string>();
   let lastError: any = null;
+  const allowedModelIds = isOpenCodeAgentModel(requestedModel)
+    ? new Set(OPENCODE_AGENT_PREFERRED_MODELS)
+    : undefined;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let route: RouteResult;
     try {
-      route = routeRequest(estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel);
+      route = routeRequest(estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, allowedModelIds);
     } catch (err: any) {
       // No more models available
       if (lastError) {

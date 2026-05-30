@@ -190,13 +190,51 @@ function normalizeChoices(data: ChatCompletionResponse): void {
 }
 
 function normalizeToolArguments(value: unknown): string {
-  if (typeof value === 'string') return value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        return JSON.stringify(repairNestedJsonStrings(JSON.parse(trimmed)));
+      } catch {
+        return value;
+      }
+    }
+    return value;
+  }
   if (value === undefined || value === null) return '{}';
   try {
-    return JSON.stringify(value);
+    return JSON.stringify(repairNestedJsonStrings(value));
   } catch {
     return String(value);
   }
+}
+
+function repairNestedJsonStrings(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(repairNestedJsonStrings);
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+        key,
+        repairNestedJsonStrings(entry),
+      ]),
+    );
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        return repairNestedJsonStrings(JSON.parse(trimmed));
+      } catch {
+        return value;
+      }
+    }
+  }
+
+  return value;
 }
 
 function normalizeMessageToolCalls(msg: { tool_calls?: Array<{ function?: { arguments?: unknown } }> }): void {

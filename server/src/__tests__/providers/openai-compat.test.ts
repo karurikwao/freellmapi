@@ -244,6 +244,33 @@ describe('OpenAICompatProvider', () => {
     expect(JSON.parse(args ?? '{}')).toEqual({ city: 'London' });
   });
 
+  it('repairs nested JSON strings in tool-call arguments', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        id: 'id', object: 'chat.completion', created: 1, model: 'm',
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [{
+              id: 'c1',
+              type: 'function',
+              function: { name: 'Questions', arguments: '{"questions":"[\\"How can I help?\\"]"}' },
+            }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+    } as any);
+
+    const result = await provider.chatCompletion('k', [{ role: 'user', content: 'hi' }], 'm');
+    const args = result.choices[0].message.tool_calls?.[0].function.arguments;
+    expect(JSON.parse(args ?? '{}')).toEqual({ questions: ['How can I help?'] });
+  });
+
   it('leaves real string content untouched', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,

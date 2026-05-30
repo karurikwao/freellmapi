@@ -71,7 +71,7 @@ describe('Virtual "auto" model', () => {
     expect(body.data.length).toBeGreaterThan(1);
   });
 
-  it.each(['auto', 'freellmapi/auto', 'freellmapi/opencode-agent'])('treats model:%s as an auto-route alias instead of a 400', async (model) => {
+  it.each(['auto', 'freellmapi/auto'])('treats model:%s as an auto-route alias instead of a 400', async (model) => {
     const origFetch = global.fetch;
 
     vi.spyOn(global, 'fetch').mockImplementation(async (url, init) => {
@@ -103,6 +103,50 @@ describe('Virtual "auto" model', () => {
 
     expect(status).toBe(200);
     expect(body.choices[0].message.content).toBe('routed via auto');
+  });
+
+  it('treats model:"freellmapi/opencode-agent" as a tool-oriented auto route', async () => {
+    const addNvidiaKey = await request(app, 'POST', '/api/keys', {
+      platform: 'nvidia',
+      key: 'nvapi-opencode-agent-test',
+      label: 'opencode-agent',
+    });
+    expect(addNvidiaKey.status).toBe(201);
+
+    const origFetch = global.fetch;
+    let capturedBody: any = null;
+
+    vi.spyOn(global, 'fetch').mockImplementation(async (url, init) => {
+      const urlStr = typeof url === 'string' ? url : url.toString();
+      if (urlStr.includes('integrate.api.nvidia.com/v1/chat/completions')) {
+        capturedBody = JSON.parse((init as any).body);
+        return {
+          ok: true,
+          json: () => Promise.resolve({
+            id: 'chatcmpl-opencode',
+            object: 'chat.completion',
+            created: 123,
+            model: capturedBody.model,
+            choices: [{
+              index: 0,
+              message: { role: 'assistant', content: 'routed via opencode alias' },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 },
+          }),
+        } as any;
+      }
+      return origFetch(url, init);
+    });
+
+    const { status, body } = await request(app, 'POST', '/v1/chat/completions', {
+      model: 'freellmapi/opencode-agent',
+      messages: [{ role: 'user', content: 'hello' }],
+    }, authHeaders());
+
+    expect(status).toBe(200);
+    expect(capturedBody.model).toBe('deepseek-ai/deepseek-v4-pro');
+    expect(body.choices[0].message.content).toBe('routed via opencode alias');
   });
 
   it('still rejects an unknown model with model_not_found', async () => {
