@@ -15,9 +15,34 @@ export const proxyRouter = Router();
 // Requesting this id means "let the router decide" — identical to omitting
 // `model` entirely.
 const AUTO_MODEL_ID = 'auto';
+const AUTO_MODEL_ALIAS_ID = 'freellmapi/auto';
+const OPENCODE_AGENT_MODEL_ID = 'freellmapi/opencode-agent';
+
+const OPENCODE_AGENT_PREFERRED_MODELS = [
+  'deepseek-ai/deepseek-v4-pro',
+  'qwen/qwen3-coder-480b-a35b-instruct',
+  'deepseek-ai/deepseek-v4-flash',
+  'minimaxai/minimax-m2.7',
+  'mistralai/mistral-large-3-675b-instruct-2512',
+  'moonshotai/kimi-k2.6',
+];
 
 function isAutoModel(modelId: string | undefined): boolean {
-  return modelId === AUTO_MODEL_ID;
+  return modelId === AUTO_MODEL_ID || modelId === AUTO_MODEL_ALIAS_ID;
+}
+
+function isOpenCodeAgentModel(modelId: string | undefined): boolean {
+  return modelId === OPENCODE_AGENT_MODEL_ID;
+}
+
+function getFirstEnabledModelId(modelIds: string[]): number | undefined {
+  const db = getDb();
+  const find = db.prepare('SELECT id FROM models WHERE model_id = ? AND enabled = 1');
+  for (const modelId of modelIds) {
+    const row = find.get(modelId) as { id: number } | undefined;
+    if (row) return row.id;
+  }
+  return undefined;
 }
 
 // Constant-time string comparison for the unified API key. Plain `===` leaks
@@ -95,6 +120,22 @@ proxyRouter.get('/models', (_req: Request, res: Response) => {
         created: 0,
         owned_by: 'freellmapi',
         name: 'Auto (router picks the best available model)',
+        context_window: null,
+      },
+      {
+        id: OPENCODE_AGENT_MODEL_ID,
+        object: 'model',
+        created: 0,
+        owned_by: 'freellmapi',
+        name: 'OpenCode agent (recommended auto route)',
+        context_window: 131072,
+      },
+      {
+        id: AUTO_MODEL_ALIAS_ID,
+        object: 'model',
+        created: 0,
+        owned_by: 'freellmapi',
+        name: 'Auto (slash alias for clients that hide plain auto)',
         context_window: null,
       },
       ...models.map(m => ({
@@ -303,7 +344,9 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   // different model would be surprising to OpenAI-compatible clients.
   // Sticky-session is the fallback when no `model` field was sent at all.
   let preferredModel: number | undefined;
-  if (isAutoModel(requestedModel)) {
+  if (isOpenCodeAgentModel(requestedModel)) {
+    preferredModel = getFirstEnabledModelId(OPENCODE_AGENT_PREFERRED_MODELS);
+  } else if (isAutoModel(requestedModel)) {
     // Explicit "auto" → behave exactly like an omitted model field.
     preferredModel = getStickyModel(messages);
   } else if (requestedModel) {

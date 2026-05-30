@@ -125,7 +125,9 @@ export class OpenAICompatProvider extends BaseProvider {
         const data = trimmed.slice(6);
         if (data === '[DONE]') return;
         try {
-          yield JSON.parse(data) as ChatCompletionChunk;
+          const chunk = JSON.parse(data) as ChatCompletionChunk;
+          normalizeChunkToolCalls(chunk);
+          yield chunk;
         } catch {
           // Skip malformed chunks
         }
@@ -165,6 +167,7 @@ function normalizeChoices(data: ChatCompletionResponse): void {
       reasoning?: string;
       content: unknown;
     };
+    normalizeMessageToolCalls(msg);
     // Flatten array content (Mistral magistral) → join text segments.
     if (Array.isArray(msg.content)) {
       msg.content = (msg.content as Array<{ text?: string; type?: string }>)
@@ -182,6 +185,35 @@ function normalizeChoices(data: ChatCompletionResponse): void {
         ? msg.reasoning_content
         : (typeof msg.reasoning === 'string' && msg.reasoning.length > 0 ? msg.reasoning : null);
       if (fold !== null) msg.content = fold;
+    }
+  }
+}
+
+function normalizeToolArguments(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value === undefined || value === null) return '{}';
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function normalizeMessageToolCalls(msg: { tool_calls?: Array<{ function?: { arguments?: unknown } }> }): void {
+  for (const call of msg.tool_calls ?? []) {
+    if (call.function) {
+      call.function.arguments = normalizeToolArguments(call.function.arguments);
+    }
+  }
+}
+
+function normalizeChunkToolCalls(chunk: ChatCompletionChunk): void {
+  for (const choice of chunk.choices ?? []) {
+    const delta = choice.delta as { tool_calls?: Array<{ function?: { arguments?: unknown } }> };
+    for (const call of delta.tool_calls ?? []) {
+      if (call.function && 'arguments' in call.function) {
+        call.function.arguments = normalizeToolArguments(call.function.arguments);
+      }
     }
   }
 }

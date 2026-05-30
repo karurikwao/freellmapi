@@ -53,12 +53,17 @@ describe('Virtual "auto" model', () => {
     vi.restoreAllMocks();
   });
 
-  it('lists "auto" as the first /v1/models entry', async () => {
+  it('lists virtual FreeLLMAPI model aliases before catalog models', async () => {
     const { status, body } = await request(app, 'GET', '/v1/models');
     expect(status).toBe(200);
     expect(body.object).toBe('list');
-    expect(body.data[0]).toMatchObject({
-      id: 'auto',
+    expect(body.data.slice(0, 3).map((m: any) => m.id)).toEqual([
+      'auto',
+      'freellmapi/opencode-agent',
+      'freellmapi/auto',
+    ]);
+    expect(body.data[1]).toMatchObject({
+      id: 'freellmapi/opencode-agent',
       object: 'model',
       owned_by: 'freellmapi',
     });
@@ -66,7 +71,7 @@ describe('Virtual "auto" model', () => {
     expect(body.data.length).toBeGreaterThan(1);
   });
 
-  it('treats model:"auto" as auto-route instead of a 400', async () => {
+  it.each(['auto', 'freellmapi/auto', 'freellmapi/opencode-agent'])('treats model:%s as an auto-route alias instead of a 400', async (model) => {
     const origFetch = global.fetch;
 
     vi.spyOn(global, 'fetch').mockImplementation(async (url, init) => {
@@ -92,7 +97,7 @@ describe('Virtual "auto" model', () => {
     });
 
     const { status, body } = await request(app, 'POST', '/v1/chat/completions', {
-      model: 'auto',
+      model,
       messages: [{ role: 'user', content: 'hello' }],
     }, authHeaders());
 

@@ -31,6 +31,11 @@ const PLATFORMS: { value: Platform; label: string }[] = [
 const REFRESH_INTERVAL_MS = 10000
 const PROVIDER_ID = 'freellmapi'
 const PROVIDER_NAME = 'FreeLLMAPI'
+const CLIENT_MODEL_ALIASES = [
+  { id: 'freellmapi/opencode-agent', name: 'OpenCode agent (recommended)' },
+  { id: 'auto', name: 'Auto (fallback chain)' },
+  { id: 'freellmapi/auto', name: 'Auto (slash alias)' },
+]
 
 const statusDot: Record<string, string> = {
   healthy: 'bg-emerald-500',
@@ -180,7 +185,7 @@ function ClientSetupSection({ fallbackEntries }: { fallbackEntries: ProviderMode
   const apiKey = data?.apiKey ?? ''
   const baseUrl = getBaseUrl()
   const clientModels = [
-    { id: 'auto', name: 'Auto (fallback chain)' },
+    ...CLIENT_MODEL_ALIASES,
     ...fallbackEntries
       .filter(entry => entry.enabled && entry.keyCount > 0)
       .map(entry => ({ id: entry.modelId, name: entry.displayName })),
@@ -277,7 +282,7 @@ function ClientSetupSection({ fallbackEntries }: { fallbackEntries: ProviderMode
           <div>
             <h3 className="text-xs font-medium">Models</h3>
             <p className="text-[11px] text-muted-foreground">
-              Use <code className="font-mono">auto</code> for the fallback chain, or pick a specific model ID.
+              Use <code className="font-mono">freellmapi/opencode-agent</code> for OpenCode, or pick a specific model ID.
             </p>
           </div>
           <Button

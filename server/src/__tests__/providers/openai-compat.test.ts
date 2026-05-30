@@ -216,6 +216,34 @@ describe('OpenAICompatProvider', () => {
     expect(result.choices[0].message.tool_calls?.[0].function.name).toBe('get_weather');
   });
 
+  it('normalizes object tool-call arguments into OpenAI-compatible JSON strings', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        id: 'id', object: 'chat.completion', created: 1, model: 'm',
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [{
+              id: 'c1',
+              type: 'function',
+              function: { name: 'get_weather', arguments: { city: 'London' } },
+            }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+    } as any);
+
+    const result = await provider.chatCompletion('k', [{ role: 'user', content: 'hi' }], 'm');
+    const args = result.choices[0].message.tool_calls?.[0].function.arguments;
+    expect(typeof args).toBe('string');
+    expect(JSON.parse(args ?? '{}')).toEqual({ city: 'London' });
+  });
+
   it('leaves real string content untouched', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
