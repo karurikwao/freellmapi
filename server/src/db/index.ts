@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import { initEncryptionKey } from '../lib/crypto.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH = path.resolve(__dirname, '../../data/freeapi.db');
+const DEFAULT_DB_PATH = path.resolve(__dirname, '../../data/freeapi.db');
 
 let db: Database.Database;
 
@@ -18,7 +18,10 @@ export function getDb(): Database.Database {
 }
 
 export function initDb(dbPath?: string): Database.Database {
-  const resolvedPath = dbPath ?? DB_PATH;
+  const configuredPath = dbPath ?? process.env.DATABASE_PATH;
+  const resolvedPath = configuredPath
+    ? (configuredPath === ':memory:' ? configuredPath : path.resolve(configuredPath))
+    : DEFAULT_DB_PATH;
   const isMemory = resolvedPath === ':memory:';
 
   if (!isMemory) {

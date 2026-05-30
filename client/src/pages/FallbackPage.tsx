@@ -73,6 +73,8 @@ const platformColors: Record<string, string> = {
   huggingface: '#ff9d00',
 }
 
+const REFRESH_INTERVAL_MS = 10000
+
 function TokenUsageBar({ data }: { data: TokenUsageData }) {
   const { totalBudget, totalUsed, models } = data
   const remaining = Math.max(0, totalBudget - totalUsed)
@@ -205,6 +207,9 @@ export default function FallbackPage() {
   const { data: entries = [], isLoading } = useQuery<FallbackEntry[]>({
     queryKey: ['fallback'],
     queryFn: () => apiFetch('/api/fallback'),
+    refetchInterval: REFRESH_INTERVAL_MS,
+    refetchOnWindowFocus: true,
+    refetchOnMount: 'always',
   })
 
   const { data: tokenUsage } = useQuery<TokenUsageData>({

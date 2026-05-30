@@ -60,6 +60,60 @@ const updateSchema = z.array(z.object({
   enabled: z.boolean(),
 }));
 
+const enabledSchema = z.object({
+  enabled: z.boolean(),
+});
+
+// Update one model's routing state without replacing the whole fallback chain.
+fallbackRouter.patch('/models/:modelDbId', (req: Request, res: Response) => {
+  const modelDbId = Number(req.params.modelDbId);
+  if (!Number.isInteger(modelDbId) || modelDbId <= 0) {
+    res.status(400).json({ error: { message: 'modelDbId must be a positive integer' } });
+    return;
+  }
+
+  const parsed = enabledSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: { message: parsed.error.errors.map(e => e.message).join(', ') } });
+    return;
+  }
+
+  const db = getDb();
+  const result = db.prepare('UPDATE fallback_config SET enabled = ? WHERE model_db_id = ?')
+    .run(parsed.data.enabled ? 1 : 0, modelDbId);
+
+  if (result.changes === 0) {
+    res.status(404).json({ error: { message: `Unknown modelDbId: ${modelDbId}` } });
+    return;
+  }
+
+  res.json({ success: true });
+});
+
+// Update all models for a provider without touching key enablement or ordering.
+fallbackRouter.patch('/platform/:platform', (req: Request, res: Response) => {
+  const platform = String(req.params.platform);
+  const parsed = enabledSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: { message: parsed.error.errors.map(e => e.message).join(', ') } });
+    return;
+  }
+
+  const db = getDb();
+  const result = db.prepare(`
+    UPDATE fallback_config
+       SET enabled = ?
+     WHERE model_db_id IN (SELECT id FROM models WHERE platform = ?)
+  `).run(parsed.data.enabled ? 1 : 0, platform);
+
+  if (result.changes === 0) {
+    res.status(404).json({ error: { message: `Unknown platform: ${platform}` } });
+    return;
+  }
+
+  res.json({ success: true });
+});
+
 // Update fallback chain (full replace)
 fallbackRouter.put('/', (req: Request, res: Response) => {
   const parsed = updateSchema.safeParse(req.body);

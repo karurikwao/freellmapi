@@ -76,6 +76,47 @@ describe('Fallback API', () => {
     await request(app, 'PUT', '/api/fallback', restore);
   });
 
+  it('PATCH /api/fallback/models/:modelDbId updates one model enabled state', async () => {
+    const { body: original } = await request(app, 'GET', '/api/fallback');
+    const target = original[0];
+
+    const { status } = await request(app, 'PATCH', `/api/fallback/models/${target.modelDbId}`, {
+      enabled: !target.enabled,
+    });
+    expect(status).toBe(200);
+
+    const { body: after } = await request(app, 'GET', '/api/fallback');
+    const updated = after.find((e: any) => e.modelDbId === target.modelDbId);
+    expect(updated.enabled).toBe(!target.enabled);
+    expect(updated.priority).toBe(target.priority);
+
+    await request(app, 'PATCH', `/api/fallback/models/${target.modelDbId}`, {
+      enabled: target.enabled,
+    });
+  });
+
+  it('PATCH /api/fallback/platform/:platform updates only that provider models', async () => {
+    const { body: original } = await request(app, 'GET', '/api/fallback');
+    const platform = 'nvidia';
+    const other = original.find((e: any) => e.platform !== platform);
+    expect(other).toBeTruthy();
+
+    const { status } = await request(app, 'PATCH', `/api/fallback/platform/${platform}`, {
+      enabled: false,
+    });
+    expect(status).toBe(200);
+
+    const { body: after } = await request(app, 'GET', '/api/fallback');
+    expect(after.filter((e: any) => e.platform === platform).every((e: any) => e.enabled === false)).toBe(true);
+    expect(after.find((e: any) => e.modelDbId === other.modelDbId).enabled).toBe(other.enabled);
+
+    await request(app, 'PUT', '/api/fallback', original.map((e: any) => ({
+      modelDbId: e.modelDbId,
+      priority: e.priority,
+      enabled: e.enabled,
+    })));
+  });
+
   it('POST /api/fallback/sort/intelligence sorts by intelligence', async () => {
     const { status } = await request(app, 'POST', '/api/fallback/sort/intelligence');
     expect(status).toBe(200);

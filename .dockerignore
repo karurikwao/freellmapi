@@ -1,0 +1,15 @@
+.git
+.github
+node_modules
+**/node_modules
+dist
+**/dist
+server/data
+*.db
+*.db-wal
+*.db-shm
+*.bak
+.env
+.env.local
+.DS_Store
+npm-debug.log*
