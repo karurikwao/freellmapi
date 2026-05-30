@@ -170,12 +170,6 @@ const toolCallSchema = z.object({
 const contentBlockSchema = z.object({ type: z.string() }).passthrough();
 const contentSchema = z.union([z.string(), z.array(contentBlockSchema)]);
 
-function hasNonEmptyContent(content: unknown): boolean {
-  if (typeof content === 'string') return content.length > 0;
-  if (Array.isArray(content)) return content.length > 0;
-  return false;
-}
-
 const systemMessageSchema = z.object({
   role: z.literal('system'),
   content: contentSchema,
@@ -193,12 +187,6 @@ const assistantMessageSchema = z.object({
   content: z.union([contentSchema, z.null()]).optional(),
   name: z.string().optional(),
   tool_calls: z.array(toolCallSchema).optional(),
-}).refine((msg) => {
-  const hasContent = hasNonEmptyContent(msg.content);
-  const hasToolCalls = (msg.tool_calls?.length ?? 0) > 0;
-  return hasContent || hasToolCalls;
-}, {
-  message: 'assistant messages must include non-empty content or tool_calls',
 });
 
 const toolMessageSchema = z.object({
@@ -244,6 +232,40 @@ const chatCompletionSchema = z.object({
   tool_choice: toolChoiceSchema.optional(),
   parallel_tool_calls: z.boolean().optional(),
 });
+
+function isEmptyAssistantMessage(message: ChatMessage): boolean {
+  if (message.role !== 'assistant') return false;
+  if ((message.tool_calls?.length ?? 0) > 0) return false;
+  return contentToString(message.content).trim().length === 0;
+}
+
+function sanitizeChatHistory(messages: ChatMessage[]): ChatMessage[] {
+  const cleaned: ChatMessage[] = [];
+  const knownToolCallIds = new Set<string>();
+
+  for (const message of messages) {
+    if (isEmptyAssistantMessage(message)) continue;
+
+    if (message.role === 'assistant') {
+      for (const toolCall of message.tool_calls ?? []) {
+        knownToolCallIds.add(toolCall.id);
+      }
+      cleaned.push(message);
+      continue;
+    }
+
+    if (message.role === 'tool') {
+      if (knownToolCallIds.has(message.tool_call_id ?? '')) {
+        cleaned.push(message);
+      }
+      continue;
+    }
+
+    cleaned.push(message);
+  }
+
+  return cleaned;
+}
 
 export function isRetryableError(err: any): boolean {
   const msg = (err.message ?? '').toLowerCase();
@@ -296,7 +318,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   }
 
   const { model: requestedModel, temperature, max_tokens, top_p, stream, tools, tool_choice, parallel_tool_calls } = parsed.data;
-  const messages: ChatMessage[] = parsed.data.messages.map((m): ChatMessage => {
+  const messages: ChatMessage[] = sanitizeChatHistory(parsed.data.messages.map((m): ChatMessage => {
     if (m.role === 'assistant') {
       return {
         role: 'assistant',
@@ -325,7 +347,17 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       content: m.content,
       ...(m.name ? { name: m.name } : {}),
     };
-  });
+  }));
+
+  if (messages.length === 0) {
+    res.status(400).json({
+      error: {
+        message: 'Invalid request: messages must include at least one usable message',
+        type: 'invalid_request_error',
+      },
+    });
+    return;
+  }
 
   // Token estimation is intentionally a heuristic (~4 chars per token). Used
   // for routing decisions (skip a model whose budget is too small) and for

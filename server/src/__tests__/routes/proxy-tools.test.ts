@@ -177,4 +177,52 @@ describe('Proxy tool-calling support', () => {
     expect(providerBody.messages[2].tool_call_id).toBe('call_weather_1');
     expect(body.choices[0].message.content).toContain('30C');
   });
+
+  it('drops empty assistant turns from a poisoned OpenCode history', async () => {
+    const origFetch = global.fetch;
+    let providerBody: any = null;
+
+    vi.spyOn(global, 'fetch').mockImplementation(async (url, init) => {
+      const urlStr = typeof url === 'string' ? url : url.toString();
+      if (urlStr.includes('api.groq.com/openai/v1/chat/completions')) {
+        providerBody = JSON.parse((init as any).body);
+        return {
+          ok: true,
+          json: () => Promise.resolve({
+            id: 'chatcmpl-opencode-recovered',
+            object: 'chat.completion',
+            created: 123,
+            model: 'openai/gpt-oss-120b',
+            choices: [{
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: 'Recovered from a bad history turn.',
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 8, completion_tokens: 7, total_tokens: 15 },
+          }),
+        } as any;
+      }
+      return origFetch(url, init);
+    });
+
+    const { status, body } = await request(app, 'POST', '/v1/chat/completions', {
+      model: 'auto',
+      messages: [
+        { role: 'user', content: 'hey ai' },
+        { role: 'assistant', content: null },
+        { role: 'tool', tool_call_id: 'missing_tool_call', content: '{"ignored":true}' },
+        { role: 'user', content: 'try again' },
+      ],
+    }, authHeaders());
+
+    expect(status).toBe(200);
+    expect(providerBody.messages).toEqual([
+      { role: 'user', content: 'hey ai' },
+      { role: 'user', content: 'try again' },
+    ]);
+    expect(body.choices[0].message.content).toBe('Recovered from a bad history turn.');
+  });
 });
